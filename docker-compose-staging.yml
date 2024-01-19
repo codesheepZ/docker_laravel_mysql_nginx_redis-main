@@ -1,0 +1,52 @@
+version: '3.5'
+
+services:
+
+    nginx:
+      image: ${COMPOSE_PROJECT_NAME}-nginx:latest
+      build:
+        context: ./docker/nginx
+        args:
+          BUILD_ARGUMENT_ENV: staging
+          ADMIN_EMAIL: ${ADMIN_EMAIL}
+      container_name: ${COMPOSE_PROJECT_NAME}-nginx
+      restart: always
+      ports:
+        - "${WEB_PORT_HTTP}:80"
+        - "${WEB_PORT_SSL}:443"
+      volumes:
+        - ./laravel:/var/www/html:ro,cached
+        - ./storage/nginx-data/nginx/conf.d:/etc/nginx/conf.d:delegate
+        - ./storage/nginx-data/letsencrypt:/etc/letsencrypt:delegate
+      depends_on:
+        - laravel
+      networks:
+        - laravel
+
+    laravel: &laravel-template
+      image: ${COMPOSE_PROJECT_NAME}-laravel:latest
+      build:
+        context: ./docker/laravel
+        args:
+          BUILD_ARGUMENT_ENV: staging
+          HOST_UID: ${HOST_UID}
+          HOST_GID: ${HOST_GID}
+      container_name: ${COMPOSE_PROJECT_NAME}-laravel
+      restart: always
+      volumes:
+        - ./laravel:/var/www/html:cached
+      networks:
+        - laravel
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+
+    ### Cron tasks
+    supervisord:
+      <<: *laravel-template
+      container_name: ${COMPOSE_PROJECT_NAME}-supervisord
+      expose: []
+      command: ["/usr/bin/supervisord"]
+
+networks:
+  laravel:
+    name: laravel

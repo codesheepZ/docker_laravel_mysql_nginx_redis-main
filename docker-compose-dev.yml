@@ -1,0 +1,90 @@
+version: '3.5'
+
+services:
+
+    nginx:
+      image: ${COMPOSE_PROJECT_NAME}-nginx:latest
+      build:
+        context: ./docker/nginx
+        args:
+          BUILD_ARGUMENT_ENV: dev
+      container_name: ${COMPOSE_PROJECT_NAME}-nginx
+      restart: always
+      ports:
+        - "${WEB_PORT_HTTP}:80"
+        - "443"
+      volumes:
+        - ./laravel:/var/www/html:ro,cached
+      depends_on:
+        - laravel
+      networks:
+        - laravel
+
+    laravel: &laravel-template
+      image: ${COMPOSE_PROJECT_NAME}-laravel:latest
+      build:
+        context: ./docker/laravel
+        args:
+          BUILD_ARGUMENT_ENV: dev
+          HOST_UID: ${HOST_UID}
+          HOST_GID: ${HOST_GID}
+          XDEBUG_CONFIG: ${XDEBUG_CONFIG}
+      container_name: ${COMPOSE_PROJECT_NAME}-laravel
+      volumes:
+        - ./laravel:/var/www/html:cached
+      depends_on:
+        - mysql
+        - mail
+        - redis
+      networks:
+        - laravel
+
+    ### Cron tasks
+    supervisord:
+      <<: *laravel-template
+      container_name: ${COMPOSE_PROJECT_NAME}-supervisord
+      expose: []
+      command: ["/usr/bin/supervisord"]
+
+    mysql:
+      image: mysql:${MYSQL_VERSION}
+      container_name: ${COMPOSE_PROJECT_NAME}-mysql
+      command: --innodb-use-native-aio=${INNODB_USE_NATIVE_AIO:-1} --sql_mode=${SQL_MODE:-"ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"}
+      environment:
+        MYSQL_ROOT_PASSWORD: secret
+        MYSQL_DATABASE: laravel
+      ports:
+        - "3306"
+      volumes:
+        - ./storage/mysql-data:/var/lib/mysql:delegated
+        - ./docker/laravel/dev/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      networks:
+        - laravel
+
+    mail:
+      image: axllent/mailpit:latest
+      container_name: ${COMPOSE_PROJECT_NAME}-mail
+      restart: always
+      ports:
+        - "8025"
+        - "1025"
+      networks:
+        - laravel
+
+    redis:
+      image: ${COMPOSE_PROJECT_NAME}-redis:latest
+      container_name: ${COMPOSE_PROJECT_NAME}-redis
+      build:
+        context: ./docker/redis
+      restart: always
+      ports:
+        - "6379"
+      volumes:
+        - ./storage/redis-data:/data:delegated
+      networks:
+        - laravel
+
+
+networks:
+  laravel:
+    name: ${COMPOSE_PROJECT_NAME}-network
